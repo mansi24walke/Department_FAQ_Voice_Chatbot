@@ -1,0 +1,11 @@
+Test Number,Question,Expected,Actual,FAQ Score,Scope Score,Result
+1,How can I get an internship?,department,matched,0.8034210801124573,0.5939555168151855,PASS
+2,Where can students find internship opportunities?,department,matched,0.9558268785476685,0.6208504438400269,PASS
+3,What facilities are available in the department?,department,matched,1.0000001192092896,0.6837942600250244,PASS
+4,How can I know about department events?,department,matched,0.8583341836929321,0.7256651520729065,PASS
+5,Who should I contact for placement information?,department,matched,0.7968778610229492,0.5150576829910278,PASS
+6,Explain the department's academic programs.,department,matched,0.6926212310791016,0.6530294418334961,PASS
+7,Where can I find information about the syllabus?,department,matched,0.9533005952835083,0.5779788494110107,PASS
+8,What laboratories are available in the department?,department,matched,1.0,0.6718137860298157,PASS
+9,What is the capital of France?,out_of_scope,out_of_scope,,0.15405505895614624,PASS
+10,Explain photosynthesis.,out_of_scope,out_of_scope,,0.0701565146446228,PASS
