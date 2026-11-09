@@ -4,7 +4,7 @@ import whisper
 import hashlib
 import tempfile
 import os
-import pyttsx3
+import subprocess
 
 from chatbot import get_bot_response
 
@@ -30,23 +30,57 @@ def load_whisper_model():
 
 
 # --------------------------------------------------
-# 3. TEXT-TO-SPEECH
+# 3. SPEECH-TO-TEXT USING WHISPER
+# --------------------------------------------------
+
+def transcribe_audio(audio_file):
+
+    audio_path = None
+
+    try:
+        with tempfile.NamedTemporaryFile(
+            suffix=".wav",
+            delete=False
+        ) as temp_audio:
+
+            temp_audio.write(audio_file.getvalue())
+            audio_path = temp_audio.name
+
+        model = load_whisper_model()
+
+        result = model.transcribe(
+            audio_path,
+            language="en",
+            fp16=False,
+            task="transcribe",
+            temperature=0,
+            condition_on_previous_text=False,
+            initial_prompt=(
+                "Department FAQ about academics, placements, "
+                "internships, events and facilities."
+            )
+        )
+
+        question = result["text"].strip()
+
+        return question
+
+    finally:
+
+        if audio_path and os.path.exists(audio_path):
+            os.remove(audio_path)
+
+
+# --------------------------------------------------
+# 4. TEXT-TO-SPEECH USING ESPEAK
 # --------------------------------------------------
 
 def generate_speech(text):
 
-    engine = None
     audio_path = None
 
     try:
 
-        # Initialize Linux eSpeak speech engine
-        engine = pyttsx3.init(driverName="espeak")
-
-        engine.setProperty("rate", 160)
-        engine.setProperty("volume", 1.0)
-
-        # Create temporary WAV file
         with tempfile.NamedTemporaryFile(
             suffix=".wav",
             delete=False
@@ -54,33 +88,45 @@ def generate_speech(text):
 
             audio_path = temp_audio.name
 
-        # Generate speech
-        engine.save_to_file(text, audio_path)
-        engine.runAndWait()
+        result = subprocess.run(
+            [
+                "espeak",
+                "-s", "160",
+                "-a", "100",
+                "-w", audio_path,
+                text
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
 
-        # Verify audio file
+        if result.returncode != 0:
+
+            raise RuntimeError(
+                result.stderr or
+                "eSpeak speech generation failed."
+            )
+
         if not os.path.exists(audio_path):
-            raise RuntimeError("Audio file was not generated.")
+            raise RuntimeError("Audio file was not created.")
 
         with open(audio_path, "rb") as audio_file:
             audio_bytes = audio_file.read()
 
         if not audio_bytes:
-            raise RuntimeError("Generated audio file is empty.")
+            raise RuntimeError("Generated audio is empty.")
 
         return audio_bytes
 
     finally:
-
-        if engine is not None:
-            engine.stop()
 
         if audio_path and os.path.exists(audio_path):
             os.remove(audio_path)
 
 
 # --------------------------------------------------
-# 4. INITIALIZE SESSION STATE
+# 5. SESSION STATE INITIALIZATION
 # --------------------------------------------------
 
 if "history" not in st.session_state:
@@ -92,36 +138,33 @@ if "api_history" not in st.session_state:
 if "last_audio_hash" not in st.session_state:
     st.session_state.last_audio_hash = None
 
-if "voice_recorder_version" not in st.session_state:
-    st.session_state.voice_recorder_version = 0
+
+# --------------------------------------------------
+# 6. SIDEBAR
+# --------------------------------------------------
+
+with st.sidebar:
+
+    st.title("⚙️ Chat Settings")
+
+    st.write(
+        "Department FAQ Voice Chatbot"
+    )
+
+    if st.button(
+        "🗑️ Clear Chat",
+        use_container_width=True
+    ):
+
+        st.session_state.history = []
+        st.session_state.api_history = []
+        st.session_state.last_audio_hash = None
+
+        st.rerun()
 
 
 # --------------------------------------------------
-# 5. SIDEBAR SETTINGS
-# --------------------------------------------------
-
-st.sidebar.title("Chat Settings")
-
-if st.sidebar.button(
-    "🗑️ Clear Chat",
-    use_container_width=True
-):
-
-    st.session_state.history = []
-    st.session_state.api_history = []
-    st.session_state.last_audio_hash = None
-
-    st.session_state.voice_recorder_version += 1
-
-    st.rerun()
-
-st.sidebar.caption(
-    "Clear Chat starts a new conversation."
-)
-
-
-# --------------------------------------------------
-# 6. APPLICATION HEADER
+# 7. MAIN APPLICATION
 # --------------------------------------------------
 
 st.title("🎓 Department FAQ Voice Chatbot")
@@ -131,18 +174,15 @@ st.write(
     "internships, events and department facilities."
 )
 
-st.info(
-    "Demonstration FAQ dataset – verify official information "
-    "with the department."
+st.caption(
+    "You can ask questions using text or voice."
 )
 
-st.caption(
-    "Please avoid entering personal or confidential information."
-)
+st.divider()
 
 
 # --------------------------------------------------
-# 7. DISPLAY CHAT HISTORY
+# 8. DISPLAY CHAT HISTORY
 # --------------------------------------------------
 
 for message in st.session_state.history:
@@ -152,217 +192,168 @@ for message in st.session_state.history:
 
 
 # --------------------------------------------------
-# 8. VOICE INPUT - STREAMLIT NATIVE RECORDER
+# 9. TEXT INPUT
 # --------------------------------------------------
 
-st.divider()
+user_question = st.chat_input(
+    "Ask your department-related question..."
+)
+
+
+# --------------------------------------------------
+# 10. VOICE INPUT
+# --------------------------------------------------
 
 st.subheader("🎤 Ask using your voice")
 
 st.write(
-    "Click the record button, speak your question and stop recording."
+    "Click the microphone, speak your question "
+    "and stop recording."
 )
 
-audio_value = st.audio_input(
-    "Record your question",
-    sample_rate=16000,
-    key=f"voice_input_{st.session_state.voice_recorder_version}"
-)
-
-audio_bytes = (
-    audio_value.getvalue()
-    if audio_value is not None
-    else None
+audio_file = st.audio_input(
+    "Record your question"
 )
 
 
 # --------------------------------------------------
-# 9. TEXT INPUT
+# 11. PROCESS USER QUESTION
 # --------------------------------------------------
 
-user_input = st.chat_input(
-    "Or type your department-related question..."
-)
+question = None
 
-question = ""
+# Text input takes priority
+if user_question:
 
+    question = user_question.strip()
 
-# --------------------------------------------------
-# 10. PROCESS TEXT OR VOICE INPUT
-# --------------------------------------------------
+# Otherwise, process voice input
+elif audio_file is not None:
 
-# Give priority to typed questions.
+    audio_bytes = audio_file.getvalue()
 
-if user_input:
+    current_audio_hash = hashlib.sha256(
+        audio_bytes
+    ).hexdigest()
 
-    question = user_input.strip()
+    # Avoid processing the same recording again
+    if current_audio_hash != st.session_state.last_audio_hash:
 
-    # Mark existing audio as processed.
-
-    if audio_bytes:
-
-        st.session_state.last_audio_hash = hashlib.sha256(
-            audio_bytes
-        ).hexdigest()
-
-
-# Process voice only when no text question is submitted.
-
-elif audio_bytes:
-
-    audio_hash = hashlib.sha256(audio_bytes).hexdigest()
-
-    # Prevent repeated processing of the same recording.
-
-    if audio_hash != st.session_state.last_audio_hash:
-
-        st.session_state.last_audio_hash = audio_hash
-
-        audio_path = None
+        st.session_state.last_audio_hash = current_audio_hash
 
         try:
 
-            with st.spinner(
-                "Loading Whisper and recognizing speech..."
-            ):
+            with st.spinner("🎧 Transcribing your voice..."):
 
-                model = load_whisper_model()
-
-                # Save audio temporarily.
-
-                with tempfile.NamedTemporaryFile(
-                    suffix=".wav",
-                    delete=False
-                ) as temp_audio:
-
-                    temp_audio.write(audio_bytes)
-                    audio_path = temp_audio.name
-
-                # Transcribe English speech.
-
-                result = model.transcribe(
-                    audio_path,
-                    language="en",
-                    fp16=False,
-                    task="transcribe",
-                    temperature=0,
-                    condition_on_previous_text=False,
-                    initial_prompt=(
-                        "Department FAQ about academics, placements, "
-                        "internships, events and facilities."
-                    )
-                )
-
-                question = result["text"].strip()
+                question = transcribe_audio(audio_file)
 
             if question:
 
-                st.success(
-                    "Speech recognized successfully!"
-                )
+                st.success("Voice transcription completed!")
 
-                st.write("**Transcribed question:**")
-                st.info(question)
+                st.write("**You said:**", question)
 
             else:
 
                 st.warning(
-                    "No speech detected. Please record again."
+                    "No speech detected. Please try recording again."
                 )
-
-                st.session_state.last_audio_hash = None
 
         except Exception as error:
 
-            st.error(
-                f"Speech recognition error: {error}"
-            )
+            st.error("Voice transcription failed.")
 
-            st.session_state.last_audio_hash = None
-
-        finally:
-
-            # Remove temporary audio.
-
-            if audio_path and os.path.exists(audio_path):
-                os.remove(audio_path)
+            st.code(repr(error))
 
 
 # --------------------------------------------------
-# 11. GENERATE CHATBOT RESPONSE
+# 12. GET CHATBOT RESPONSE
 # --------------------------------------------------
 
 if question:
 
-    try:
-
-        # Display user question.
-
-        with st.chat_message("user"):
-            st.markdown(question)
-
-        # Save user message.
-
-        st.session_state.history.append({
+    # Display user message
+    st.session_state.history.append(
+        {
             "role": "user",
             "text": question
-        })
+        }
+    )
 
-        # Generate chatbot answer.
+    with st.chat_message("user"):
+        st.markdown(question)
+
+    try:
+
+        with st.spinner("🤖 Generating response..."):
+
+            answer, updated_api_history = get_bot_response(
+                question,
+                st.session_state.api_history
+            )
+
+            st.session_state.api_history = updated_api_history
+
+        # Save chatbot response
+        st.session_state.history.append(
+            {
+                "role": "assistant",
+                "text": answer
+            }
+        )
 
         with st.chat_message("assistant"):
 
-            with st.spinner("Finding an answer..."):
-
-                answer, updated_api_history = get_bot_response(
-                    question,
-                    st.session_state.api_history
-                )
-
-                st.session_state.api_history = updated_api_history
-
-                st.session_state.history.append({
-                    "role": "assistant",
-                    "text": answer
-                })
-
-            # Display text answer.
-
             st.markdown(answer)
 
-            # Generate voice answer.
-
+            # Generate speech for the response
             try:
 
-                with st.spinner("Generating voice response..."):
+                with st.spinner("🔊 Generating voice response..."):
 
-                    audio_response = generate_speech(answer)
+                    audio_bytes = generate_speech(answer)
 
                 st.audio(
-                    audio_response,
+                    audio_bytes,
                     format="audio/wav"
                 )
 
             except Exception as error:
 
                 st.warning(
-                    "Text response is available, but voice generation "
-                    "is temporarily unavailable."
+                    "Text response is available, "
+                    "but voice generation is temporarily unavailable."
                 )
 
-                print("TTS Error:", repr(error))
+                st.code(repr(error))
 
     except Exception as error:
 
         st.error(
-            f"Unable to generate a response. Error: {error}"
+            "Something went wrong while generating the chatbot response."
         )
 
-        # Remove incomplete user message.
+        st.code(repr(error))
 
-        if (
-            st.session_state.history
-            and st.session_state.history[-1]["role"] == "user"
-        ):
+    st.rerun()
 
-            st.session_state.history.pop()
+
+# --------------------------------------------------
+# 13. FOOTER
+# --------------------------------------------------
+
+st.divider()
+
+st.caption(
+    "Department FAQ Voice Chatbot | "
+    "Powered by Gemini, Whisper and Sentence-BERT"
+)
+
+st.caption(
+    "Demonstration FAQ dataset – verify official information "
+    "with the department."
+)
+
+st.caption(
+    "Please avoid entering personal or confidential information."
+)
