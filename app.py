@@ -35,15 +35,18 @@ def load_whisper_model():
 
 def generate_speech(text):
 
-    engine = pyttsx3.init()
-
-    engine.setProperty("rate", 160)
-    engine.setProperty("volume", 1.0)
-
+    engine = None
     audio_path = None
 
     try:
 
+        # Initialize Linux eSpeak speech engine
+        engine = pyttsx3.init(driverName="espeak")
+
+        engine.setProperty("rate", 160)
+        engine.setProperty("volume", 1.0)
+
+        # Create temporary WAV file
         with tempfile.NamedTemporaryFile(
             suffix=".wav",
             delete=False
@@ -51,9 +54,11 @@ def generate_speech(text):
 
             audio_path = temp_audio.name
 
+        # Generate speech
         engine.save_to_file(text, audio_path)
         engine.runAndWait()
 
+        # Verify audio file
         if not os.path.exists(audio_path):
             raise RuntimeError("Audio file was not generated.")
 
@@ -67,7 +72,8 @@ def generate_speech(text):
 
     finally:
 
-        engine.stop()
+        if engine is not None:
+            engine.stop()
 
         if audio_path and os.path.exists(audio_path):
             os.remove(audio_path)
@@ -344,7 +350,7 @@ if question:
                     "is temporarily unavailable."
                 )
 
-                print("TTS Error:", error)
+                print("TTS Error:", repr(error))
 
     except Exception as error:
 
