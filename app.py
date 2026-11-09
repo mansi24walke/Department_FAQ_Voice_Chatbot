@@ -188,7 +188,15 @@ st.divider()
 for message in st.session_state.history:
 
     with st.chat_message(message["role"]):
+
         st.markdown(message["text"])
+
+        # Play saved voice response
+        if message["role"] == "assistant" and message.get("audio"):
+            st.audio(
+                message["audio"],
+                format="audio/wav"
+            )
 
 
 # --------------------------------------------------
@@ -272,7 +280,6 @@ elif audio_file is not None:
 
 if question:
 
-    # Display user message
     st.session_state.history.append(
         {
             "role": "user",
@@ -280,12 +287,9 @@ if question:
         }
     )
 
-    with st.chat_message("user"):
-        st.markdown(question)
+    with st.spinner("🤖 Generating response..."):
 
-    try:
-
-        with st.spinner("🤖 Generating response..."):
+        try:
 
             answer, updated_api_history = get_bot_response(
                 question,
@@ -294,49 +298,42 @@ if question:
 
             st.session_state.api_history = updated_api_history
 
-        # Save chatbot response
-        st.session_state.history.append(
-            {
-                "role": "assistant",
-                "text": answer
-            }
-        )
+            # Generate voice response
+            audio_bytes = None
 
-        with st.chat_message("assistant"):
-
-            st.markdown(answer)
-
-            # Generate speech for the response
             try:
 
                 with st.spinner("🔊 Generating voice response..."):
 
                     audio_bytes = generate_speech(answer)
 
-                st.audio(
-                    audio_bytes,
-                    format="audio/wav"
-                )
-
             except Exception as error:
 
                 st.warning(
                     "Text response is available, "
-                    "but voice generation is temporarily unavailable."
+                    "but voice generation failed."
                 )
 
                 st.code(repr(error))
 
-    except Exception as error:
+            # Store text AND audio in chat history
+            st.session_state.history.append(
+                {
+                    "role": "assistant",
+                    "text": answer,
+                    "audio": audio_bytes
+                }
+            )
 
-        st.error(
-            "Something went wrong while generating the chatbot response."
-        )
+        except Exception as error:
 
-        st.code(repr(error))
+            st.error(
+                "Something went wrong while generating the response."
+            )
+
+            st.code(repr(error))
 
     st.rerun()
-
 
 # --------------------------------------------------
 # 13. FOOTER
