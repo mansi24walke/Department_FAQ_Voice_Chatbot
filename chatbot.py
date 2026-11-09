@@ -1,6 +1,8 @@
 
-import re
 import os
+import re
+import streamlit as st
+
 from dotenv import load_dotenv
 from google import genai
 
@@ -15,21 +17,38 @@ from retrieval import retrieve_faq
 load_dotenv()
 
 API_KEY = os.getenv("GEMINI_API_KEY")
-MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+MODEL = os.getenv("GEMINI_MODEL")
+
+# Read Streamlit Cloud secrets if environment
+# variables are not available.
+
+try:
+    if not API_KEY:
+        API_KEY = st.secrets.get("GEMINI_API_KEY")
+
+    if not MODEL:
+        MODEL = st.secrets.get("GEMINI_MODEL")
+
+except Exception:
+    pass
 
 if not API_KEY:
-    raise ValueError("GEMINI_API_KEY not found in .env file")
+    raise ValueError(
+        "GEMINI_API_KEY is missing. Configure it in your .env "
+        "file or Streamlit Cloud Secrets."
+    )
 
-
-# -----------------------------------------
-# 2. INITIALIZE GEMINI CLIENT
-# -----------------------------------------
+if not MODEL:
+    raise ValueError(
+        "GEMINI_MODEL is missing. Configure it in your .env "
+        "file or Streamlit Cloud Secrets."
+    )
 
 client = genai.Client(api_key=API_KEY)
 
 
 # -----------------------------------------
-# 3. SAFE RESPONSE MESSAGES
+# 2. SAFE RESPONSE MESSAGES
 # -----------------------------------------
 
 OUT_OF_SCOPE_MESSAGE = (
@@ -47,7 +66,7 @@ INVALID_MESSAGE = "Please enter a valid department-related question."
 
 
 # -----------------------------------------
-# 4. FOLLOW-UP QUESTION HANDLING
+# 3. FOLLOW-UP QUESTION HANDLING
 # -----------------------------------------
 
 def get_previous_faq(history):
@@ -143,7 +162,10 @@ def is_answerable_from_previous_faq(question, previous_faq):
     if question.startswith("where"):
         return any(
             word in answer
-            for word in ["check", "find", "available", "announcements", "notices"]
+            for word in [
+                "check", "find", "available",
+                "announcements", "notices"
+            ]
         )
 
     # When questions
@@ -168,7 +190,7 @@ def is_answerable_from_previous_faq(question, previous_faq):
 
 
 # -----------------------------------------
-# 5. CHATBOT RESPONSE FUNCTION
+# 4. CHATBOT RESPONSE FUNCTION
 # -----------------------------------------
 
 def get_bot_response(user_message, history=None):
